@@ -13,16 +13,6 @@ torch.manual_seed(42)
 np.random.seed(42)
 
 
-# 自定义激活函数：梯度有界且较小的非线性函数
-class VanishingActivation(nn.Module):
-    def __init__(self, alpha=0.05):
-        super().__init__()
-        self.alpha = alpha
-
-    def forward(self, x):
-        return x * torch.tanh(self.alpha * x)
-
-
 # 残差块实现
 class VanishingResidualBlock(nn.Module):
     def __init__(self, in_features, config_type, activation_alpha=0.05):
