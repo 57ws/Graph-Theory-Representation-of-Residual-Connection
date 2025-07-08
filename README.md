@@ -136,17 +136,17 @@ graph LR
         
         subgraph 对照组[Control：标准残差]
             direction TB
-            C1["x"] --> C2["Tanh(output1+x)"] --> C3["output2"] --> C4["Tanh(output3+output2)"] --> C5["输出"]
+            C1["output1=f(x)"] --> C2["output2=Tanh(output1+x)"] --> C3["output3=g(output2)"] --> C4["output4=Tanh(output3+output2)"] --> C5["y"]
         end
         
         subgraph 实验组1[Exp1：残差边全激活]
             direction TB
-            E1a["x"] --> E2a["output1+Tanh(x)"] --> E3a["output2"] --> E4a["output3+Tanh(output2)"] --> E5a["输出"]
+            E1a["output1=f(x)"] --> E2a["output2=output1+Tanh(x)"] --> E3a["output3=g(output2)"] --> E4a["output4=output3+Tanh(output2)"] --> E5a["y"]
         end
         
         subgraph 实验组2[Exp2：半激活]
             direction TB
-            E1b["x"] --> E2b["Tanh(output1+x)"] --> E3b["output2"] --> E4b["output3+Tanh(output2)"] --> E5b["输出"]
+            E1b["output1=f(x)"] --> E2b["output2=Tanh(output1+x)"] --> E3b["output3=g(output2)"] --> E4b["output4=output3+Tanh(output2)"] --> E5b["y"]
         end
     end
 ```
