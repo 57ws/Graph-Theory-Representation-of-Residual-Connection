@@ -29,6 +29,7 @@ yₙ = fₙ(yₙ₋₁) + fₙ₋₁(yₙ₋₂) + ... + f₁(y₁) + y₁
 **关键洞察**：
 - 第`n`层输出是所有前序层函数`fᵢ`与初始输入的**叠加和**
 - 打破了传统链式依赖，创建**跨层直连通道**
+- 每一层都与前n-1个节点直接关联，构建一个**边数为 $$\frac{n^2}{2}$$ 的图**
 
 ### 2.2 梯度传播图的构建
 ```mermaid
@@ -124,24 +125,28 @@ graph LR
 
 在强梯度消失环境（Tanh激活）中测试三种残差块变体：
 
+1. **实验组1：** 让残差边承担所有非线性变换工作，主干道只有线性变换功能
+2. **实验组2：** 让残差边承担一半的非线性变换工作，主干道保有一半非线性变换功能
+3. **对照组：** 原始残差实现，残差边只负责信息传递。
+
 ```mermaid
-graph TB
+graph LR
     subgraph 残差块结构
-        direction LR
+        direction TB
         
         subgraph 对照组[Control：标准残差]
             direction TB
-            C1[输入] --> C2[fc1+BN] --> C3[Tanh] --> C4[fc2+BN] --> C5[+输入] --> C6[Tanh] --> C7[输出]
+            C1["x"] --> C2["Tanh(output1+x)"] --> C3["output2"] --> C4["Tanh(output3+output2)"] --> C5["输出"]
         end
         
         subgraph 实验组1[Exp1：残差边全激活]
             direction TB
-            E1a[输入] --> E2a[fc1+BN] --> E3a[fc2+BN] --> E4a["+tanh(输入)"] --> E5a[输出]
+            E1a["x"] --> E2a["output1+Tanh(x)"] --> E3a["output2"] --> E4a["output3+Tanh(output2)"] --> E5a["输出"]
         end
         
         subgraph 实验组2[Exp2：半激活]
             direction TB
-            E1b[输入] --> E2b[fc1+BN] --> E3b[Tanh] --> E4b[fc2+BN] --> E5b["+tanh(输入)"] --> E6b[输出]
+            E1b["x"] --> E2b["Tanh(output1+x)"] --> E3b["output2"] --> E4b["output3+Tanh(output2)"] --> E5b["输出"]
         end
     end
 ```
@@ -232,3 +237,6 @@ graph TB
    - 图神经网络驱动的架构优化
 
 该框架为理解深度学习架构提供了全新视角，将网络结构优化问题转化为图结构设计问题，开辟了架构创新的新路径。
+
+具体表述与实验代码，欢迎[https://github.com/liluoyi666/Graph-Theory-Representation-of-Residual-Connection](https://github.com/liluoyi666/Graph-Theory-Representation-of-Residual-Connection.git)
+
