@@ -144,12 +144,12 @@ graph LR
             C1["output1=linear1(x)"] --> C2["output2=Tanh(output1+x)"] --> C3["output3=linear2(output2)"] --> C4["output4=Tanh(output3+output2)"] --> C5["y"]
         end
         
-        subgraph 实验组1[Exp1：残差边全激活]
+        subgraph 实验组1[Exp1：“全激活”残差块]
             direction TB
             E1a["output1=linear1(x)"] --> E2a["output2=output1+Tanh(x)"] --> E3a["output3=linear2(output2)"] --> E4a["output4=output3+Tanh(output2)"] --> E5a["y"]
         end
         
-        subgraph 实验组2[Exp2：半激活]
+        subgraph 实验组2[Exp2：“半激活”残差块]
             direction TB
             E1b["output1=linear1(x)"] --> E2b["output2=Tanh(output1+x)"] --> E3b["output3=linear2(output2)"] --> E4b["output4=output3+Tanh(output2)"] --> E5b["y"]
         end
