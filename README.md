@@ -241,9 +241,11 @@ graph LR
 4. **新研究方向**：
    - 基于梯度风险的自适应残差结构
    - 异构残差网络设计
-   - 多领域理论的协同发展
+   - 多领域理论的协同发展，从多角度，多领域，多层次地优化神经网络
 
-该框架为理解深度学习架构提供了新视角，将网络结构优化问题转化为图结构设计问题，为神经网络架构创新提供思路
+该框架为理解深度学习架构提供了新视角，将网络结构优化问题转化为图结构设计问题，为神经网络架构创新提供思路。
 
+
+```
 具体表述与实验代码与实验结果数据，欢迎[https://github.com/liluoyi666/Graph-Theory-Representation-of-Residual-Connection](https://github.com/liluoyi666/Graph-Theory-Representation-of-Residual-Connection.git)
 
