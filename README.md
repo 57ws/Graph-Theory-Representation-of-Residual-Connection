@@ -247,6 +247,6 @@ graph LR
 该框架为理解深度学习架构提供了新视角，将网络结构优化问题转化为图结构设计问题，为神经网络架构创新提供思路。
 
 
-```
+---
 具体表述与实验代码与实验结果数据，欢迎[https://github.com/liluoyi666/Graph-Theory-Representation-of-Residual-Connection](https://github.com/liluoyi666/Graph-Theory-Representation-of-Residual-Connection.git)
 
