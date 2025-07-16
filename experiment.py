@@ -25,10 +25,11 @@ class VanishingActivation(nn.Module):
 
 # 残差块实现
 class VanishingResidualBlock(nn.Module):
-    def __init__(self, in_features, config_type, activation_fn):
+    def __init__(self, in_features, config_type, activation_fn, activation_end):
         super().__init__()
         self.config_type = config_type
         self.activation_fn = activation_fn
+        self.activation_end = activation_end
 
         # 主干网络的两层线性变换
         self.fc1 = nn.Linear(in_features, in_features)
@@ -37,15 +38,8 @@ class VanishingResidualBlock(nn.Module):
         self.bn2 = nn.BatchNorm1d(in_features)
 
         # 根据配置类型决定激活函数的使用
-        if config_type == 'control':  # 原始残差块
-            self.activation = activation_fn
-            self.residual_activation = None
-        elif config_type == 'exp1':  # 全激活残差块
-            self.activation = None
-            self.residual_activation = activation_fn
-        elif config_type == 'exp2':  # 半激活残差块
-            self.activation = activation_fn
-            self.residual_activation = activation_fn
+        self.activation = activation_fn
+        self.residual_activation = activation_end
 
     def forward(self, x):
         identity = x
@@ -53,33 +47,21 @@ class VanishingResidualBlock(nn.Module):
         # 主干网络第一层
         out = self.fc1(x)
         out = self.bn1(out)
-
-        if self.activation is not None:
-            out = self.activation(out + identity)
-        else:
-            out = out + self.residual_activation(identity)
-
-        identity = out
+        out = self.activation(out)
 
         # 主干网络第二层
         out = self.fc2(out)
         out = self.bn2(out)
 
         # 残差连接处理
-        if self.config_type == 'control':
-            out += identity
-            out = self.activation(out)
-        elif self.config_type == 'exp1' or self.config_type == 'exp2':
-            if self.residual_activation is not None:
-                identity = self.residual_activation(identity)
-            out += identity
+        out = self.residual_activation(out + identity)
 
         return out
 
 
 # 深层网络模型
 class DeepResNet(nn.Module):
-    def __init__(self, num_blocks, hidden_size, num_classes, config_type, activation_fn):
+    def __init__(self, num_blocks, hidden_size, num_classes, config_type, activation_fn, activation_end):
         super().__init__()
         self.config_type = config_type
         self.num_blocks = num_blocks
@@ -88,11 +70,11 @@ class DeepResNet(nn.Module):
         # 输入层
         self.input_fc = nn.Linear(32 * 32 * 3, hidden_size)
         self.input_bn = nn.BatchNorm1d(hidden_size)
-        self.input_activation = activation_fn
+        self.input_activation = nn.GELU()
 
         # 残差块堆叠
         self.res_blocks = nn.ModuleList([
-            VanishingResidualBlock(hidden_size, config_type, activation_fn)
+            VanishingResidualBlock(hidden_size, config_type, activation_fn, activation_end)
             for _ in range(num_blocks)
         ])
 
@@ -134,58 +116,53 @@ class DeepResNet(nn.Module):
         self.gradient_points = []
         return norms
 
-    def count_dead_neurons(self, device, threshold=1e-2):
-        """统计坏死神经元比例"""
-        dead_counts = []
-        total_neurons = self.hidden_size
-
-        # 检查每个残差块的输出
-        with torch.no_grad():
-            test_input = torch.randn(64, 32 * 32 * 3, device=device)
-            x = self.input_fc(test_input)
-            x = self.input_bn(x)
-            x = self.input_activation(x)
-
-            for block in self.res_blocks:
-                x = block(x)
-                dead_neurons = (x.abs() < threshold).all(dim=0)
-                dead_ratio = dead_neurons.float().mean().item()
-                dead_counts.append(dead_ratio)
-
-        return dead_counts
-
 
 # 实验配置
 class ExperimentConfig:
-    def __init__(self, name, config_type, activation_type, num_blocks=5,
+    def __init__(self, name, config_type, activation_fn, activation_end, num_blocks=5,
                  hidden_size=256, lr=0.001, weight_decay=1e-4, epochs=15):
         self.name = name
         self.config_type = config_type
-        self.activation_type = activation_type
+        self.activation1_type = activation_fn
+        self.activation2_type = activation_end
         self.num_blocks = num_blocks
         self.hidden_size = hidden_size
         self.lr = lr
         self.weight_decay = weight_decay
         self.epochs = epochs
 
-    def get_activation_fn(self):
+    def get_activation1_fn(self):
         """根据配置返回激活函数实例[relu,,tanh,gelu,vanishing]"""
-        if self.activation_type == 'relu':
+        if self.activation1_type == 'relu':
             return nn.ReLU()
-        elif self.activation_type == 'tanh':
+        elif self.activation1_type == 'tanh':
             return nn.Tanh()
-        elif self.activation_type == 'gelu':
+        elif self.activation1_type == 'gelu':
             return nn.GELU()
-        elif self.activation_type == 'vanishing':
+        elif self.activation1_type == 'vanishing':
             return VanishingActivation(alpha=0.25)
         else:
-            raise ValueError(f"未知的激活函数类型: {self.activation_type}")
+            raise ValueError(f"未知的激活函数类型: {self.activation1_type}")
+
+    def get_activation2_fn(self):
+        """根据配置返回激活函数实例[relu,,tanh,gelu,vanishing]"""
+        if self.activation2_type == 'relu':
+            return nn.ReLU()
+        elif self.activation2_type == 'tanh':
+            return nn.Tanh()
+        elif self.activation2_type == 'gelu':
+            return nn.GELU()
+        elif self.activation2_type == 'vanishing':
+            return VanishingActivation(alpha=0.25)
+        else:
+            raise ValueError(f"未知的激活函数类型: {self.activation2_type}")
 
 
 # 训练和评估函数
 def train_model(config, train_loader, test_loader):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"训练 {config.name} 模型 ({config.activation_type}激活函数) 在 {device} 上...")
+    print(
+        f"训练 {config.name} 模型 ({config.activation1_type}主干激活函数) ({config.activation2_type}残差激活函数)在 {device} 上...")
 
     # 创建模型
     model = DeepResNet(
@@ -193,7 +170,8 @@ def train_model(config, train_loader, test_loader):
         hidden_size=config.hidden_size,
         num_classes=10,
         config_type=config.config_type,
-        activation_fn=config.get_activation_fn()
+        activation_fn=config.get_activation1_fn(),
+        activation_end=config.get_activation2_fn()
     ).to(device)
 
     # 优化器和损失函数
@@ -204,8 +182,12 @@ def train_model(config, train_loader, test_loader):
     # 训练记录
     train_losses = []
     test_accuracies = []
-    gradient_history = []
-    dead_neuron_history = []
+    gradient_history = []  # 存储每轮梯度的统计信息
+
+    # 新增：存储梯度统计信息
+    grad_means = []
+    grad_stds = []
+    grad_vars = []
 
     for epoch in range(config.epochs):
         model.train()
@@ -250,15 +232,28 @@ def train_model(config, train_loader, test_loader):
         # 更新学习率
         scheduler.step(avg_loss)
 
-        # 记录梯度和坏死神经元
-        gradient_history.append(model.get_gradient_norms())
-        dead_neuron_history.append(model.count_dead_neurons(device))
+        # 记录梯度
+        gradient_norms = model.get_gradient_norms()
+        gradient_history.append(gradient_norms)
 
+        # 计算并存储梯度统计信息
+        if gradient_norms:
+            grad_norms = np.array(gradient_norms)
+            grad_mean = np.mean(grad_norms)
+            grad_std = np.std(grad_norms)
+            grad_var = np.var(grad_norms)
+
+            grad_means.append(grad_mean)
+            grad_stds.append(grad_std)
+            grad_vars.append(grad_var)
+        else:
+            grad_means.append(0)
+            grad_stds.append(0)
+            grad_vars.append(0)
+
+        # 只打印损失和准确率
         print(f'Epoch {epoch + 1}: Loss={avg_loss:.4f}, Accuracy={accuracy:.2f}%, '
               f'LR={optimizer.param_groups[0]["lr"]:.2e}')
-
-    # 最终坏死神经元统计
-    final_dead_neurons = dead_neuron_history[-1]
 
     return {
         'name': config.name,
@@ -266,68 +261,88 @@ def train_model(config, train_loader, test_loader):
         'train_losses': train_losses,
         'test_accuracies': test_accuracies,
         'gradient_history': gradient_history,
-        'dead_neuron_history': dead_neuron_history,
-        'final_dead_neurons': final_dead_neurons,
+        'grad_means': grad_means,
+        'grad_stds': grad_stds,
+        'grad_vars': grad_vars,
         'model': model
     }
 
 
-# 可视化结果
 def visualize_results(results):
-    plt.figure(figsize=(18, 12))
+    plt.figure(figsize=(20, 25))
 
-    # 训练损失曲线
-    plt.subplot(2, 2, 1)
+    # 1. 训练损失曲线
+    plt.subplot(3, 2, 1)
     for res in results:
-        label = f"{res['name']} ({res['config'].activation_type})"
-        plt.plot(res['train_losses'], label=label)
+        label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
+        plt.plot(res['train_losses'], '-', label=label)  # 修改这里
     plt.title('Training Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.legend()
     plt.grid(True)
 
-    # 测试准确率曲线
-    plt.subplot(2, 2, 2)
+    # 2. 测试准确率曲线
+    plt.subplot(3, 2, 2)
     for res in results:
-        label = f"{res['name']} ({res['config'].activation_type})"
-        plt.plot(res['test_accuracies'], label=label)
+        label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
+        plt.plot(res['test_accuracies'], '-', label=label)  # 修改这里
     plt.title('Test Accuracy')
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy (%)')
     plt.legend()
     plt.grid(True)
 
-    # 梯度范数分布（最后一轮）
-    plt.subplot(2, 2, 3)
+    # 3. 最后一轮梯度范数随层深变化
+    plt.subplot(3, 2, 3)
     for res in results:
         if res['gradient_history'] and res['gradient_history'][-1]:
             last_epoch_gradients = res['gradient_history'][-1]
             layer_indices = np.arange(len(last_epoch_gradients))
-            label = f"{res['name']} ({res['config'].activation_type})"
-            plt.plot(layer_indices, last_epoch_gradients, label=label)
+            label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
+            plt.plot(layer_indices, last_epoch_gradients, '-', label=label)  # 修改这里
     plt.title('Gradient Norm by Layer Depth (Final Epoch)')
     plt.xlabel('Layer Index')
     plt.ylabel('Gradient Norm')
     plt.legend()
     plt.grid(True)
 
-    # 坏死神经元比例（最后一轮）
-    plt.subplot(2, 2, 4)
+    # 4. 每轮平均梯度范数变化
+    plt.subplot(3, 2, 4)
     for res in results:
-        dead_neurons = res['final_dead_neurons']
-        label = f"{res['name']} ({res['config'].activation_type})"
-        plt.plot(np.arange(len(dead_neurons)), dead_neurons, label=label)
-    plt.title('Dead Neuron Ratio by Block (Final Epoch)')
-    plt.xlabel('Residual Block Index')
-    plt.ylabel('Dead Neuron Ratio')
+        label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
+        plt.plot(np.arange(len(res['grad_means'])), res['grad_means'], '-', label=label)  # 修改这里
+    plt.title('Mean Gradient Norm per Epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Mean Gradient Norm')
+    plt.legend()
+    plt.grid(True)
+
+    # 5. 每轮梯度方差变化
+    plt.subplot(3, 2, 5)
+    for res in results:
+        label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
+        plt.plot(np.arange(len(res['grad_vars'])), res['grad_vars'], '-', label=label)  # 修改这里
+    plt.title('Gradient Variance per Epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Gradient Variance')
+    plt.legend()
+    plt.grid(True)
+
+    # 6. 每轮梯度标准差变化
+    plt.subplot(3, 2, 6)
+    for res in results:
+        label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
+        plt.plot(np.arange(len(res['grad_stds'])), res['grad_stds'], '-', label=label)  # 修改这里
+    plt.title('Gradient Standard Deviation per Epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Gradient Standard Deviation')
     plt.legend()
     plt.grid(True)
 
     plt.tight_layout()
     plt.savefig('residual_experiment_results.png', dpi=300)
     plt.show()
-
 
 # 主实验函数
 def run_experiment():
@@ -350,38 +365,28 @@ def run_experiment():
     # 定义实验配置
     configs = [
         # 控制组 (标准残差)
-        # 可选激活[relu,tanh,gelu,vanishing]
+
         ExperimentConfig(
-            name='Control (Standard Residual)',
+            name='re',
             config_type='control',
-            activation_type='tanh',
-            num_blocks=20,
+            activation_fn='relu',
+            activation_end='relu',
+            num_blocks=10,
             hidden_size=256,
             lr=0.001,
-            epochs=50
+            epochs=20
         ),
 
-        # 实验组1 (残差路径激活)
         ExperimentConfig(
-            name='Exp1 (Residual Path Only)',
-            config_type='exp1',
-            activation_type='tanh',
+            name='th',
+            config_type='control',
+            activation_fn='relu',
+            activation_end='relu',
             num_blocks=20,
             hidden_size=256,
             lr=0.001,
-            epochs=50
+            epochs=20
         ),
-
-        # 实验组2 (半激活)
-        ExperimentConfig(
-            name='Exp2 (Half Activation)',
-            config_type='exp2',
-            activation_type='tanh',
-            num_blocks=20,
-            hidden_size=256,
-            lr=0.001,
-            epochs=50
-        )
     ]
 
     # 运行所有实验
@@ -393,12 +398,25 @@ def run_experiment():
     # 可视化结果
     visualize_results(results)
 
-    # 打印最终坏死神经元统计
-    print("\n最终坏死神经元比例:")
+    # 打印最终梯度统计
+    print("\n最终梯度统计信息:")
     for res in results:
-        avg_dead = np.mean(res['final_dead_neurons'])
-        max_dead = np.max(res['final_dead_neurons'])
-        print(f"{res['name']} ({res['config'].activation_type}): 平均={avg_dead:.4f}, 最大={max_dead:.4f}")
+        # 计算最后一个epoch的梯度统计
+        last_epoch_gradients = res['gradient_history'][-1] if res['gradient_history'] else []
+        if last_epoch_gradients:
+            grad_norms = np.array(last_epoch_gradients)
+            grad_mean = np.mean(grad_norms)
+            grad_std = np.std(grad_norms)
+            grad_var = np.var(grad_norms)
+            grad_min = np.min(grad_norms)
+            grad_max = np.max(grad_norms)
+        else:
+            grad_mean = grad_std = grad_var = grad_min = grad_max = float('nan')
+
+        print(f"{res['name']} ({res['config'].activation1_type}):")
+        print(f"  梯度范数: 均值={grad_mean:.4e}, 标准差={grad_std:.4e}, 方差={grad_var:.4e}, "
+              f"最小值={grad_min:.4e}, 最大值={grad_max:.4e}")
+        print("-" * 80)
 
 
 # 运行实验
