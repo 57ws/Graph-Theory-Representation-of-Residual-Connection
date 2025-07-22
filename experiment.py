@@ -7,6 +7,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+import os
+import json
+import time
+from datetime import datetime
+import matplotlib as mpl
+
+# 设置中文字体支持
+try:
+    # Windows 系统
+    plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
+    # MacOS 系统
+    # plt.rcParams['font.sans-serif'] = ['Arial Unicode MS']
+    plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+except:
+    print("警告: 中文字体设置失败，图表中的中文可能无法正常显示")
 
 # 设置随机种子确保可重复性
 torch.manual_seed(42)
@@ -157,6 +172,20 @@ class ExperimentConfig:
         else:
             raise ValueError(f"未知的激活函数类型: {self.activation2_type}")
 
+    def to_dict(self):
+        """将配置转换为字典"""
+        return {
+            'name': self.name,
+            'config_type': self.config_type,
+            'activation1_type': self.activation1_type,
+            'activation2_type': self.activation2_type,
+            'num_blocks': self.num_blocks,
+            'hidden_size': self.hidden_size,
+            'lr': self.lr,
+            'weight_decay': self.weight_decay,
+            'epochs': self.epochs
+        }
+
 
 # 训练和评估函数
 def train_model(config, train_loader, test_loader):
@@ -263,94 +292,139 @@ def train_model(config, train_loader, test_loader):
         'gradient_history': gradient_history,
         'grad_means': grad_means,
         'grad_stds': grad_stds,
-        'grad_vars': grad_vars,
-        'model': model
+        'grad_vars': grad_vars
     }
 
 
-def visualize_results(results):
+def visualize_results(results, save_dir):
     plt.figure(figsize=(20, 25))
 
-    # 1. 训练损失曲线
-    plt.subplot(3, 2, 1)
-    for res in results:
-        label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
-        plt.plot(res['train_losses'], '-', label=label)  # 修改这里
-    plt.title('Training Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.grid(True)
+    # 使用英文标题和标签，中文实验名称
+    titles = [
+        'Training Loss',
+        'Test Accuracy',
+        'Gradient Norm by Layer Depth (Final Epoch)',
+        'Mean Gradient Norm per Epoch',
+        'Gradient Variance per Epoch',
+        'Gradient Standard Deviation per Epoch'
+    ]
 
-    # 2. 测试准确率曲线
-    plt.subplot(3, 2, 2)
-    for res in results:
-        label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
-        plt.plot(res['test_accuracies'], '-', label=label)  # 修改这里
-    plt.title('Test Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy (%)')
-    plt.legend()
-    plt.grid(True)
+    xlabels = [
+        'Epoch',
+        'Epoch',
+        'Layer Index',
+        'Epoch',
+        'Epoch',
+        'Epoch'
+    ]
 
-    # 3. 最后一轮梯度范数随层深变化
-    plt.subplot(3, 2, 3)
-    for res in results:
-        if res['gradient_history'] and res['gradient_history'][-1]:
-            last_epoch_gradients = res['gradient_history'][-1]
-            layer_indices = np.arange(len(last_epoch_gradients))
-            label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
-            plt.plot(layer_indices, last_epoch_gradients, '-', label=label)  # 修改这里
-    plt.title('Gradient Norm by Layer Depth (Final Epoch)')
-    plt.xlabel('Layer Index')
-    plt.ylabel('Gradient Norm')
-    plt.legend()
-    plt.grid(True)
+    ylabels = [
+        'Loss',
+        'Accuracy (%)',
+        'Gradient Norm',
+        'Mean Gradient Norm',
+        'Gradient Variance',
+        'Gradient Standard Deviation'
+    ]
 
-    # 4. 每轮平均梯度范数变化
-    plt.subplot(3, 2, 4)
-    for res in results:
-        label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
-        plt.plot(np.arange(len(res['grad_means'])), res['grad_means'], '-', label=label)  # 修改这里
-    plt.title('Mean Gradient Norm per Epoch')
-    plt.xlabel('Epoch')
-    plt.ylabel('Mean Gradient Norm')
-    plt.legend()
-    plt.grid(True)
+    for i in range(6):
+        plt.subplot(3, 2, i + 1)
 
-    # 5. 每轮梯度方差变化
-    plt.subplot(3, 2, 5)
-    for res in results:
-        label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
-        plt.plot(np.arange(len(res['grad_vars'])), res['grad_vars'], '-', label=label)  # 修改这里
-    plt.title('Gradient Variance per Epoch')
-    plt.xlabel('Epoch')
-    plt.ylabel('Gradient Variance')
-    plt.legend()
-    plt.grid(True)
+        for res in results:
+            label = f"{res['name']}"  # 直接使用中文名称
 
-    # 6. 每轮梯度标准差变化
-    plt.subplot(3, 2, 6)
-    for res in results:
-        label = f"{res['name']} ({res['config'].activation1_type} {res['config'].activation2_type})"
-        plt.plot(np.arange(len(res['grad_stds'])), res['grad_stds'], '-', label=label)  # 修改这里
-    plt.title('Gradient Standard Deviation per Epoch')
-    plt.xlabel('Epoch')
-    plt.ylabel('Gradient Standard Deviation')
-    plt.legend()
-    plt.grid(True)
+            if i == 0:
+                plt.plot(res['train_losses'], '-', label=label)
+            elif i == 1:
+                plt.plot(res['test_accuracies'], '-', label=label)
+            elif i == 2:
+                if res['gradient_history'] and res['gradient_history'][-1]:
+                    last_epoch_gradients = res['gradient_history'][-1]
+                    layer_indices = np.arange(len(last_epoch_gradients))
+                    plt.plot(layer_indices, last_epoch_gradients, '-', label=label)
+            elif i == 3:
+                plt.plot(np.arange(len(res['grad_means'])), res['grad_means'], '-', label=label)
+            elif i == 4:
+                plt.plot(np.arange(len(res['grad_vars'])), res['grad_vars'], '-', label=label)
+            elif i == 5:
+                plt.plot(np.arange(len(res['grad_stds'])), res['grad_stds'], '-', label=label)
+
+        plt.title(titles[i])
+        plt.xlabel(xlabels[i])
+        plt.ylabel(ylabels[i])
+        plt.legend()
+        plt.grid(True)
 
     plt.tight_layout()
-    plt.savefig('residual_experiment_results.png', dpi=300)
+    plt.savefig(os.path.join(save_dir, 'residual_experiment_results.png'), dpi=300)
     plt.show()
+    plt.close()
+
+
+def save_experiment_data(results, save_dir):
+    """保存实验数据到指定目录"""
+    # 保存配置信息
+    configs = [res['config'].to_dict() for res in results]
+    with open(os.path.join(save_dir, 'experiment_configs.json'), 'w', encoding='utf-8') as f:
+        json.dump(configs, f, indent=4, ensure_ascii=False)  # 确保中文正确保存
+
+    # 保存每个实验的详细结果
+    for res in results:
+        exp_data = {
+            'name': res['name'],
+            'train_losses': res['train_losses'],
+            'test_accuracies': res['test_accuracies'],
+            'grad_means': res['grad_means'],
+            'grad_stds': res['grad_stds'],
+            'grad_vars': res['grad_vars'],
+            'gradient_history': res['gradient_history']
+        }
+        with open(os.path.join(save_dir, f"experiment_{res['name']}_results.json"), 'w', encoding='utf-8') as f:
+            json.dump(exp_data, f, indent=4, ensure_ascii=False)
+
+    # 保存最终梯度统计信息
+    gradient_stats = []
+    for res in results:
+        last_epoch_gradients = res['gradient_history'][-1] if res['gradient_history'] else []
+        if last_epoch_gradients:
+            grad_norms = np.array(last_epoch_gradients)
+            stats = {
+                'experiment': res['name'],
+                'mean_gradient': float(np.mean(grad_norms)),
+                'std_gradient': float(np.std(grad_norms)),
+                'variance_gradient': float(np.var(grad_norms)),
+                'min_gradient': float(np.min(grad_norms)),
+                'max_gradient': float(np.max(grad_norms))
+            }
+            gradient_stats.append(stats)
+
+    with open(os.path.join(save_dir, 'final_gradient_stats.json'), 'w', encoding='utf-8') as f:
+        json.dump(gradient_stats, f, indent=4, ensure_ascii=False)
+
+    # 打印最终梯度统计信息
+    print("\n最终梯度统计信息:")
+    for stats in gradient_stats:
+        print(f"实验 {stats['experiment']}:")
+        print(f"  梯度范数: 均值={stats['mean_gradient']:.4e}, 标准差={stats['std_gradient']:.4e}, "
+              f"方差={stats['variance_gradient']:.4e}, 最小值={stats['min_gradient']:.4e}, "
+              f"最大值={stats['max_gradient']:.4e}")
+        print("-" * 80)
+
 
 # 主实验函数
 def run_experiment():
+    # 创建保存目录
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_dir = f"result/{timestamp}"
+    os.makedirs(save_dir, exist_ok=True)
+    print(f"实验配置与结果将保存在: {save_dir}")
+
     # 准备数据集 (CIFAR-10)
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
+    print("如果数据集不存在，则会将《CIFAR-10》下载在./data")
 
     train_set = torchvision.datasets.CIFAR10(
         root='./data', train=True, download=True, transform=transform)
@@ -362,61 +436,75 @@ def run_experiment():
     test_loader = torch.utils.data.DataLoader(
         test_set, batch_size=128, shuffle=False, num_workers=2)
 
-    # 定义实验配置
+    # 定义实验配置 - 使用中文名称
     configs = [
         # 控制组 (标准残差)
-
         ExperimentConfig(
-            name='re',
+            name='10层网络',
             config_type='control',
             activation_fn='relu',
-            activation_end='relu',
+            activation_end='tanh',
             num_blocks=10,
             hidden_size=256,
             lr=0.001,
-            epochs=20
+            epochs=1
         ),
 
         ExperimentConfig(
-            name='th',
+            name='20层网络',
             config_type='control',
             activation_fn='relu',
-            activation_end='relu',
+            activation_end='tanh',
             num_blocks=20,
             hidden_size=256,
             lr=0.001,
-            epochs=20
+            epochs=1
+        ),
+
+        ExperimentConfig(
+            name='30层网络',
+            config_type='control',
+            activation_fn='relu',
+            activation_end='tanh',
+            num_blocks=30,
+            hidden_size=256,
+            lr=0.001,
+            epochs=1
         ),
     ]
 
     # 运行所有实验
     results = []
     for config in configs:
+        print(f"\n{'=' * 50}")
+        print(f"开始实验: {config.name}")
+        print(f"配置: {config.activation1_type}主干, {config.activation2_type}残差, {config.num_blocks}层")
+        print(f"训练参数: lr={config.lr}, epochs={config.epochs}")
+        print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'=' * 50}")
+
+        start_time = time.time()
         result = train_model(config, train_loader, test_loader)
+        elapsed = time.time() - start_time
+
+        print(f"\n实验完成: {config.name}")
+        print(f"耗时: {elapsed / 60:.2f} 分钟")
+        print(f"最终准确率: {result['test_accuracies'][-1]:.2f}%")
+
         results.append(result)
 
-    # 可视化结果
-    visualize_results(results)
+        # 立即保存中间结果
+        with open(os.path.join(save_dir, f"intermediate_result_{config.name}.json"), 'w', encoding='utf-8') as f:
+            json.dump(result, f, default=lambda o: o.to_dict() if hasattr(o, 'to_dict') else str(o),
+                      indent=4, ensure_ascii=False)
 
-    # 打印最终梯度统计
-    print("\n最终梯度统计信息:")
-    for res in results:
-        # 计算最后一个epoch的梯度统计
-        last_epoch_gradients = res['gradient_history'][-1] if res['gradient_history'] else []
-        if last_epoch_gradients:
-            grad_norms = np.array(last_epoch_gradients)
-            grad_mean = np.mean(grad_norms)
-            grad_std = np.std(grad_norms)
-            grad_var = np.var(grad_norms)
-            grad_min = np.min(grad_norms)
-            grad_max = np.max(grad_norms)
-        else:
-            grad_mean = grad_std = grad_var = grad_min = grad_max = float('nan')
+    # 可视化结果并保存
+    visualize_results(results, save_dir)
 
-        print(f"{res['name']} ({res['config'].activation1_type}):")
-        print(f"  梯度范数: 均值={grad_mean:.4e}, 标准差={grad_std:.4e}, 方差={grad_var:.4e}, "
-              f"最小值={grad_min:.4e}, 最大值={grad_max:.4e}")
-        print("-" * 80)
+    # 保存所有实验数据
+    save_experiment_data(results, save_dir)
+
+    print(f"\n所有实验完成! 结果保存在: {save_dir}")
 
 
 # 运行实验
